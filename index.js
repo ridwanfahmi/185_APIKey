@@ -3,6 +3,29 @@ const path = require('path');
 const crypto = require('crypto');
 const app = express();
 const port = 3000;
+const express = require("express");
+const { Sequelize } = require("sequelize");
+
+
+app.use(express.json());
+
+// Database connection langsung di sini
+const db = mysql.createConnection({
+  host: "localhost",
+  user: "root",   // default MySQL (ubah kalau punya password)
+  password: "(Dagadu123)0",   
+  database: "apikey_db",
+  port: "3309"
+});
+
+db.authenticate()
+  .then(() => console.log("✅ Database connected..."))
+  .catch(err => console.log("❌ Error: " + err));
+
+// Server
+app.listen(3000, () => {
+  console.log("Server running on port 3000");
+});
 
 // ===== In-memory storage sementara =====
 let myApiKey = null;
