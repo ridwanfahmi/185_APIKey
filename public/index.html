@@ -83,40 +83,46 @@
       background-color: #ff6699;
       opacity: 1;
     }
+
+    #status {
+      margin-top: 15px;
+      font-weight: 500;
+      color: #ff4081;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Buat API Key</h1>
     <button id="btnCreate">Create API Key</button>
+    <button id="btnCheck">Cek API Key</button>
 
     <div class="textarea-container">
       <textarea id="apikey" readonly placeholder="API Key akan muncul di sini..."></textarea>
       <button class="copy-btn" id="btnCopy">Copy</button>
     </div>
+
+    <div id="status"></div>
   </div>
 
   <script>
-    // Generate API Key
     document.getElementById('btnCreate').addEventListener('click', async () => {
       try {
         const response = await fetch('http://localhost:3000/create', { method: 'POST' });
         if (!response.ok) throw new Error('Gagal mengakses server!');
         const data = await response.json();
         document.getElementById('apikey').value = data.apiKey;
+        document.getElementById('status').textContent = 'API Key berhasil dibuat dan disimpan di database!';
       } catch (err) {
         document.getElementById('apikey').value = 'Error: ' + err.message;
+        document.getElementById('status').textContent = '';
       }
     });
 
-    // Copy ke clipboard
     document.getElementById('btnCopy').addEventListener('click', async () => {
       const textarea = document.getElementById('apikey');
       const apiKey = textarea.value.trim();
-      if (!apiKey) {
-        alert('Belum ada API key untuk disalin!');
-        return;
-      }
+      if (!apiKey) return alert('Belum ada API key untuk disalin!');
       try {
         await navigator.clipboard.writeText(apiKey);
         const btn = document.getElementById('btnCopy');
@@ -124,6 +130,33 @@
         setTimeout(() => (btn.textContent = 'Copy'), 1500);
       } catch (err) {
         alert('Gagal menyalin API key: ' + err);
+      }
+    });
+
+    document.getElementById('btnCheck').addEventListener('click', async () => {
+      const apiKey = document.getElementById('apikey').value.trim();
+      if (!apiKey) return alert('Isi dulu API Key yang mau dicek!');
+
+      try {
+        const res = await fetch('http://localhost:3000/cekapi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey })
+        });
+
+        const data = await res.json();
+        const status = document.getElementById('status');
+
+        if (data.valid) {
+          status.textContent = '✅ API Key valid dan terdaftar di database!';
+          status.style.color = 'green';
+        } else {
+          status.textContent = '❌ API Key tidak valid: ' + (data.error || '');
+          status.style.color = 'red';
+        }
+      } catch (err) {
+        document.getElementById('status').textContent = 'Error: ' + err.message;
+        document.getElementById('status').style.color = 'red';
       }
     });
   </script>

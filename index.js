@@ -1,75 +1,77 @@
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
+const mysql = require('mysql2/promise');
+require('dotenv').config();
+
 const app = express();
 const port = 3000;
-const express = require("express");
-const { Sequelize } = require("sequelize");
 
-
-app.use(express.json());
-
-// Database connection langsung di sini
-const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",   // default MySQL (ubah kalau punya password)
-  password: "(Dagadu123)0",   
-  database: "apikey_db",
-  port: "3309"
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USERNAME,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_DATABASE,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  port: process.env.DB_PORT
 });
 
-db.authenticate()
-  .then(() => console.log("✅ Database connected..."))
-  .catch(err => console.log("❌ Error: " + err));
-
-// Server
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
-});
-
-// ===== In-memory storage sementara =====
-let myApiKey = null;
 const API_PREFIX = 'sk-sm-v1-';
-const API_REGEX = new RegExp('^' + API_PREFIX + '[0-9A-F]{48}$'); // 24 bytes -> 48 hex uppercase
 
-// Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Route utama
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Generate & simpan API key
-app.post('/create', (req, res) => {
-  const apiKey = API_PREFIX + crypto.randomBytes(24).toString('hex').toUpperCase();
-  myApiKey = apiKey; // simpan sementara
-  res.json({ apiKey });
+app.post('/create', async (req, res) => {
+  try {
+    const apiKey = API_PREFIX + crypto.randomBytes(24).toString('hex').toUpperCase();
+
+    const sql = 'INSERT INTO api_keys (api_key, is_active) VALUES (?, 1)';
+    await pool.execute(sql, [apiKey]);
+
+    res.json({ apiKey });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Gagal membuat API key' });
+  }
 });
 
-// Cek validitas API key
-app.post('/cekapi', (req, res) => {
-  // Bisa kirim lewat body: { apiKey: "..." } atau Authorization: Bearer ...
-  const fromHeader = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  const apiKey = (req.body && req.body.apiKey) ? String(req.body.apiKey) : fromHeader;
+app.post('/cekapi', async (req, res) => {
+  try {
+    const fromHeader = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const apiKey = (req.body && req.body.apiKey) ? String(req.body.apiKey) : fromHeader;
 
-  if (!apiKey) {
-    return res.status(400).json({ valid: false, error: 'apiKey wajib dikirim (body.apiKey atau Authorization: Bearer ...)' });
-  }
-  if (!API_REGEX.test(apiKey)) {
-    return res.status(400).json({ valid: false, error: 'Format apiKey tidak valid' });
-  }
-  if (!myApiKey) {
-    return res.status(409).json({ valid: false, error: 'Belum ada API key yang dibuat. Panggil /create dulu.' });
-  }
+    if (!apiKey) {
+      return res.status(400).json({ valid: false, error: 'apiKey wajib dikirim (body.apiKey atau Authorization: Bearer ...)' });
+    }
+    if (!apiKey.startsWith(API_PREFIX)) {
+      return res.status(400).json({ valid: false, error: 'Format apiKey tidak valid' });
+    }
 
-  // Secure, timing-safe comparison
-  const a = Buffer.from(apiKey);
-  const b = Buffer.from(myApiKey);
-  const isValid = a.length === b.length && crypto.timingSafeEqual(a, b);
+    const [rows] = await pool.execute(
+      'SELECT id, is_active FROM api_keys WHERE api_key = ? LIMIT 1',
+      [apiKey]
+    );
 
-  return res.status(isValid ? 200 : 401).json({ valid: isValid });
+    if (rows.length === 0) {
+      return res.status(401).json({ valid: false, error: 'API key tidak dikenali' });
+    }
+    if (!rows[0].is_active) {
+      return res.status(403).json({ valid: false, error: 'API key nonaktif' });
+    }
+
+    await pool.execute('UPDATE api_keys SET last_used_at = NOW() WHERE id = ?', [rows[0].id]);
+
+    return res.json({ valid: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ valid: false, error: 'Terjadi kesalahan saat verifikasi' });
+  }
 });
 
 app.listen(port, () => {
